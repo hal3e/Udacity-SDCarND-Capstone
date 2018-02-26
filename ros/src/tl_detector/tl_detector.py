@@ -30,7 +30,7 @@ class TLDetector(object):
         rely on the position of the light and the camera image to predict it.
         '''
         sub6 = rospy.Subscriber('/image_color', Image, self.image_cb, queue_size=1)
-        sub3 = rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb, queue_size=1)
+        # sub3 = rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb, queue_size=1)
 
         self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
 
@@ -49,14 +49,18 @@ class TLDetector(object):
         self.last_stop_position_index = None
 
         self.bridge = CvBridge()
+        self.detector_is_ready = False
         self.light_classifier = TLClassifier()
         self.listener = tf.TransformListener()
+        self.detector_is_ready = True
 
         self.state = TrafficLight.UNKNOWN
         self.last_state = TrafficLight.UNKNOWN
         self.last_wp = -1
         self.state_count = 0
-        self.use_ground_truth_state = True
+        # self.use_ground_truth_state = True
+        self.use_ground_truth_state = False
+        self.image_counter = 0
 
         rospy.spin()
 
@@ -103,31 +107,35 @@ class TLDetector(object):
         self.has_image = True
         self.camera_image = msg
 
-        # Check if our pose and map waypoints are initialized
-        if self.pose != None and self.waypoints != None:
+        # Check if detector has loaded the graph and is ready
+        if self.detector_is_ready:
+            self.image_counter += 1
 
-            # Check if we are close to a traffic light first
-            if self.close_to_traffic_light():
+            # Check if our pose and map waypoints are initialized
+            if self.pose != None and self.waypoints != None:
 
-                light_wp, state = self.process_traffic_lights()
+                # Check if we are close to a traffic light first
+                if self.close_to_traffic_light() and self.image_counter % 2 == 0:
 
-                '''
-                Publish upcoming red lights at camera frequency.
-                Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
-                of times till we start using it. Otherwise the previous stable state is
-                used.
-                '''
-                if self.state != state:
-                    self.state_count = 0
-                    self.state = state
-                elif self.state_count >= STATE_COUNT_THRESHOLD:
-                    self.last_state = self.state
-                    light_wp = light_wp if state == TrafficLight.RED or state == TrafficLight.YELLOW else -1
-                    self.last_wp = light_wp
-                    self.upcoming_red_light_pub.publish(Int32(light_wp))
-                else:
-                    self.upcoming_red_light_pub.publish(Int32(self.last_wp))
-                self.state_count += 1
+                    light_wp, state = self.process_traffic_lights()
+
+                    '''
+                    Publish upcoming red lights at camera frequency.
+                    Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
+                    of times till we start using it. Otherwise the previous stable state is
+                    used.
+                    '''
+                    if self.state != state:
+                        self.state_count = 0
+                        self.state = state
+                    elif self.state_count >= STATE_COUNT_THRESHOLD:
+                        self.last_state = self.state
+                        light_wp = light_wp if state == TrafficLight.RED or state == TrafficLight.YELLOW else -1
+                        self.last_wp = light_wp
+                        self.upcoming_red_light_pub.publish(Int32(light_wp))
+                    else:
+                        self.upcoming_red_light_pub.publish(Int32(self.last_wp))
+                    self.state_count += 1
 
 
     def get_closest_waypoint(self, stop_position):
@@ -175,7 +183,11 @@ class TLDetector(object):
             self.prev_light_loc = None
             return False
 
-        cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
+        cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, desired_encoding="rgb8")
+
+        # save_file_name = "./train-pictures/image_" + str(self.image_counter) + ".png"
+        # self.image_counter += 1
+        # cv2.imwrite(save_file_name, cv_image)
 
         #Get classification
         return self.light_classifier.get_classification(cv_image)
